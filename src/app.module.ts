@@ -1,5 +1,6 @@
 import { McpApp, Module, ConfigModule, OAuthModule } from '@nitrostack/core';
-import { FlightsModule } from './modules/flights/flights.module.js';
+// import { FlightsModule } from './modules/flights/flights.module.js';
+import { VehiclesModule } from './modules/vehicles/vehicles.module.js';
 import { SystemHealthCheck } from './health/system.health.js';
 
 /**
@@ -60,6 +61,11 @@ import { SystemHealthCheck } from './health/system.health.js';
         'read',        // Read access to resources
         'write',       // Write/modify resources
         'admin',       // Administrative operations
+        'vehicle:read',
+        'vehicle:write',
+        'maintenance:read',
+        'maintenance:write',
+        'calendar:write'
       ],
 
       // Token Introspection (RFC 7662) - For opaque tokens
@@ -89,7 +95,8 @@ import { SystemHealthCheck } from './health/system.health.js';
       },
     }),
 
-    FlightsModule
+    // FlightsModule,
+    VehiclesModule
   ],
   providers: [
     // Health Checks

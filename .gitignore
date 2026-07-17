@@ -51,6 +51,7 @@ temp/
 *.sqlite
 *.sqlite3
 data/
+app.db
 
 # Optional: local uploads
 uploads/
