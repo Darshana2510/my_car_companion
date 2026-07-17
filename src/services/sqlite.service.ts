@@ -5,11 +5,33 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
+export interface Vehicle {
+    id: string;
+    ownerId: string;
+
+    nickname: string | null;
+    vin: string | null;
+
+    year: number;
+    make: string;
+    model: string;
+
+    currentOdometer: number | null;
+
+    createdAt: string;
+    updatedAt: string;
+}
+
 @Injectable()
 export class SQLiteService {
     private db!: Database<sqlite3.Database, sqlite3.Statement>;
+    private initialized = false;
 
-    async init() {
+    async init(): Promise<void> {
+        if (this.initialized) {
+            return;
+        }
+
         const dbPath = 'data/garage.db';
 
         mkdirSync(dirname(dbPath), { recursive: true });
@@ -19,12 +41,18 @@ export class SQLiteService {
             driver: sqlite3.Database
         });
 
-        await this.db.exec('PRAGMA foreign_keys = ON;');
+        await this.db.exec(`
+            PRAGMA foreign_keys = ON;
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+        `);
 
         await this.initialize();
+
+        this.initialized = true;
     }
 
-    private async initialize() {
+    private async initialize(): Promise<void> {
         await this.db.exec(`
             CREATE TABLE IF NOT EXISTS vehicles (
                 id TEXT PRIMARY KEY,
@@ -32,7 +60,7 @@ export class SQLiteService {
                 owner_id TEXT NOT NULL,
 
                 nickname TEXT,
-                vin TEXT,
+                vin TEXT UNIQUE,
 
                 year INTEGER NOT NULL,
                 make TEXT NOT NULL,
@@ -43,6 +71,9 @@ export class SQLiteService {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE INDEX IF NOT EXISTS idx_vehicle_owner
+            ON vehicles(owner_id);
 
             CREATE TABLE IF NOT EXISTS maintenance_records (
                 id TEXT PRIMARY KEY,
@@ -66,6 +97,9 @@ export class SQLiteService {
                     ON DELETE CASCADE
             );
 
+            CREATE INDEX IF NOT EXISTS idx_maintenance_vehicle
+            ON maintenance_records(vehicle_id);
+
             CREATE TABLE IF NOT EXISTS fuel_logs (
                 id TEXT PRIMARY KEY,
 
@@ -85,7 +119,33 @@ export class SQLiteService {
                     REFERENCES vehicles(id)
                     ON DELETE CASCADE
             );
+
+            CREATE INDEX IF NOT EXISTS idx_fuel_vehicle
+            ON fuel_logs(vehicle_id);
         `);
+    }
+
+    private mapVehicle(row: any): Vehicle | null {
+        if (!row) {
+            return null;
+        }
+
+        return {
+            id: row.id,
+            ownerId: row.owner_id,
+
+            nickname: row.nickname,
+            vin: row.vin,
+
+            year: row.year,
+            make: row.make,
+            model: row.model,
+
+            currentOdometer: row.current_odometer,
+
+            createdAt: row.created_at,
+            updatedAt: row.updated_at
+        };
     }
 
     async createVehicle(input: {
@@ -96,18 +156,24 @@ export class SQLiteService {
         make: string;
         model: string;
         currentOdometer?: number;
-    }) {
+    }): Promise<Vehicle> {
+        await this.init();
+
         const now = new Date().toISOString();
 
-        const vehicle = {
+        const vehicle: Vehicle = {
             id: randomUUID(),
             ownerId: input.ownerId,
+
             nickname: input.nickname ?? null,
             vin: input.vin ?? null,
+
             year: input.year,
             make: input.make,
             model: input.model,
+
             currentOdometer: input.currentOdometer ?? null,
+
             createdAt: now,
             updatedAt: now
         };
@@ -145,8 +211,10 @@ export class SQLiteService {
         return vehicle;
     }
 
-    async listVehicles(ownerId: string) {
-        return this.db.all(
+    async listVehicles(ownerId: string): Promise<Vehicle[]> {
+        await this.init();
+
+        const rows = await this.db.all(
             `
             SELECT *
             FROM vehicles
@@ -155,10 +223,17 @@ export class SQLiteService {
             `,
             [ownerId]
         );
+
+        return rows.map(row => this.mapVehicle(row)!);
     }
 
-    async getVehicle(vehicleId: string, ownerId: string) {
-        return this.db.get(
+    async getVehicle(
+        vehicleId: string,
+        ownerId: string
+    ): Promise<Vehicle | null> {
+        await this.init();
+
+        const row = await this.db.get(
             `
             SELECT *
             FROM vehicles
@@ -167,9 +242,16 @@ export class SQLiteService {
             `,
             [vehicleId, ownerId]
         );
+
+        return this.mapVehicle(row);
     }
 
-    async deleteVehicle(vehicleId: string, ownerId: string) {
+    async deleteVehicle(
+        vehicleId: string,
+        ownerId: string
+    ): Promise<{ deleted: boolean }> {
+        await this.init();
+
         const result = await this.db.run(
             `
             DELETE
@@ -185,7 +267,12 @@ export class SQLiteService {
         };
     }
 
-    async close() {
+    async close(): Promise<void> {
+        if (!this.initialized) {
+            return;
+        }
+
         await this.db.close();
+        this.initialized = false;
     }
 }
