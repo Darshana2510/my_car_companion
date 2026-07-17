@@ -8,6 +8,7 @@ import {
 
 import { OAuthGuard } from "../../guards/oauth.guard.js";
 import { SQLiteService } from "../../services/sqlite.service.js";
+import { CalendarService } from "../../services/calendar.service.js";
 
 const AddMaintenanceRecordSchema = z.object({
     vehicleId: z.string().describe("The ID of the vehicle."),
@@ -37,13 +38,25 @@ const ListMaintenanceHistorySchema = z.object({
 
 type ListMaintenanceHistoryInput = z.infer<typeof ListMaintenanceHistorySchema>;
 
+const ScheduleMaintenanceSchema = z.object({
+    vehicleId: z.string().describe("The ID of the vehicle."),
+    title: z.string().describe("Maintenance title (e.g. 'Oil Change')."),
+    start: z.string().describe("Start date/time in ISO 8601 format."),
+    end: z.string().describe("End date/time in ISO 8601 format."),
+    description: z.string().optional(),
+    location: z.string().optional()
+});
+
+type ScheduleMaintenanceInput = z.infer<typeof ScheduleMaintenanceSchema>;
+
 @Injectable({
-    deps: [SQLiteService]
+    deps: [SQLiteService, CalendarService]
 })
 export class MaintenanceTools {
 
     constructor(
-        private sqlite: SQLiteService
+        private sqlite: SQLiteService,
+        private calendar: CalendarService
     ) { }
 
     @Tool({
@@ -89,6 +102,7 @@ export class MaintenanceTools {
             record
         };
     }
+
     @Tool({
         name: "list_maintenance_history",
         description: "List all maintenance records for one of the authenticated user's vehicles.",
@@ -130,6 +144,52 @@ export class MaintenanceTools {
             },
             count: history.length,
             history
+        };
+    }
+
+    @Tool({
+        name: "schedule_maintenance",
+        description: "Create a maintenance reminder in the user's Google Calendar.",
+        inputSchema: ScheduleMaintenanceSchema
+    })
+    @UseGuards(OAuthGuard)
+    async scheduleMaintenance(
+        input: ScheduleMaintenanceInput,
+        ctx: ExecutionContext
+    ) {
+        const ownerId = ctx.auth?.subject;
+
+        if (!ownerId) {
+            throw new Error("User is not authenticated.");
+        }
+
+        const vehicle = await this.sqlite.getVehicle(
+            input.vehicleId,
+            ownerId
+        );
+
+        if (!vehicle) {
+            throw new Error("Vehicle not found.");
+        }
+
+        const event = await this.calendar.createEvent({
+            title: `${input.title} - ${vehicle.year} ${vehicle.make} ${vehicle.model}`,
+            description: input.description,
+            location: input.location,
+            start: input.start,
+            end: input.end
+        });
+
+        return {
+            success: true,
+            message: "Maintenance reminder added to Google Calendar.",
+            vehicle: {
+                id: vehicle.id,
+                year: vehicle.year,
+                make: vehicle.make,
+                model: vehicle.model
+            },
+            event
         };
     }
 }
