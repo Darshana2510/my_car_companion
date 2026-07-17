@@ -267,6 +267,92 @@ export class SQLiteService {
         };
     }
 
+    async createMaintenanceRecord(input: {
+        vehicleId: string;
+        serviceType: string;
+        performedAt: string;
+        odometer?: number;
+        cost?: number;
+        notes?: string;
+        nextDueDate?: string;
+        nextDueOdometer?: number;
+    }) {
+        const now = new Date().toISOString();
+
+        const record = {
+            id: randomUUID(),
+            vehicleId: input.vehicleId,
+            serviceType: input.serviceType,
+            performedAt: input.performedAt,
+            odometer: input.odometer ?? null,
+            cost: input.cost ?? null,
+            notes: input.notes ?? null,
+            nextDueDate: input.nextDueDate ?? null,
+            nextDueOdometer: input.nextDueOdometer ?? null,
+            createdAt: now
+        };
+
+        await this.db.run(
+            `
+        INSERT INTO maintenance_records (
+            id,
+            vehicle_id,
+            service_type,
+            performed_at,
+            odometer,
+            cost,
+            notes,
+            next_due_date,
+            next_due_odometer,
+            created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+            [
+                record.id,
+                record.vehicleId,
+                record.serviceType,
+                record.performedAt,
+                record.odometer,
+                record.cost,
+                record.notes,
+                record.nextDueDate,
+                record.nextDueOdometer,
+                record.createdAt
+            ]
+        );
+
+        return record;
+    }
+
+    async listMaintenanceHistory(
+        vehicleId: string,
+        ownerId: string
+    ) {
+        return this.db.all(
+            `
+        SELECT
+            mr.id,
+            mr.vehicle_id,
+            mr.service_type,
+            mr.performed_at,
+            mr.odometer,
+            mr.cost,
+            mr.notes,
+            mr.next_due_date,
+            mr.next_due_odometer,
+            mr.created_at
+        FROM maintenance_records mr
+        INNER JOIN vehicles v
+            ON mr.vehicle_id = v.id
+        WHERE mr.vehicle_id = ?
+          AND v.owner_id = ?
+        ORDER BY mr.performed_at DESC
+        `,
+            [vehicleId, ownerId]
+        );
+    }
+
     async close(): Promise<void> {
         if (!this.initialized) {
             return;
