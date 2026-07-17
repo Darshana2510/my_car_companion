@@ -15,6 +15,7 @@ export class SQLiteService {
     private readonly deleteVehicleStmt;
 
     constructor() {
+        console.log("SQLiteService constructor");
         const dbPath = 'data/garage.db';
 
         mkdirSync(dirname(dbPath), { recursive: true });
@@ -24,7 +25,9 @@ export class SQLiteService {
         this.db.pragma('journal_mode = WAL');
         this.db.pragma('foreign_keys = ON');
 
+        console.log("Database opened");
         this.initialize();
+        console.log("Tables initialized");
 
         this.insertVehicleStmt = this.db.prepare(`
             INSERT INTO vehicles (
