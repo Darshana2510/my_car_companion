@@ -8,7 +8,7 @@ import {
 } from "@nitrostack/core";
 
 import { OAuthGuard } from '../../guards/oauth.guard.js';
-// import { SQLiteService } from "../../services/sqlite.service.js";
+import { SQLiteService } from "../../services/sqlite.service.js";
 
 const AddVehicleSchema = z.object({
     nickname: z.string().min(1).max(50).optional(),
@@ -21,13 +21,13 @@ const AddVehicleSchema = z.object({
 
 type AddVehicleInput = z.infer<typeof AddVehicleSchema>;
 
-// @Injectable({
-//     deps: [SQLiteService]
-// })
+@Injectable({
+    deps: [SQLiteService]
+})
 export class VehicleTools {
 
     constructor(
-        // private sqlite: SQLiteService
+        private sqlite: SQLiteService
     ) { }
 
     // @Tool({

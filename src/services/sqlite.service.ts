@@ -1,159 +1,94 @@
-import Database from 'better-sqlite3';
 import { Injectable } from '@nitrostack/core';
+import sqlite3 from 'sqlite3';
+import { open, Database } from 'sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 @Injectable()
 export class SQLiteService {
-    private readonly db: Database.Database;
+    private db!: Database<sqlite3.Database, sqlite3.Statement>;
 
-    // Prepared statements
-    private readonly insertVehicleStmt;
-    private readonly listVehiclesStmt;
-    private readonly getVehicleStmt;
-    private readonly deleteVehicleStmt;
-
-    constructor() {
-        console.log("SQLiteService constructor");
+    async init() {
         const dbPath = 'data/garage.db';
 
         mkdirSync(dirname(dbPath), { recursive: true });
 
-        this.db = new Database(dbPath);
+        this.db = await open({
+            filename: dbPath,
+            driver: sqlite3.Database
+        });
 
-        this.db.pragma('journal_mode = WAL');
-        this.db.pragma('foreign_keys = ON');
+        await this.db.exec('PRAGMA foreign_keys = ON;');
 
-        console.log("Database opened");
-        this.initialize();
-        console.log("Tables initialized");
+        await this.initialize();
+    }
 
-        this.insertVehicleStmt = this.db.prepare(`
-            INSERT INTO vehicles (
-                id,
-                owner_id,
-                nickname,
-                vin,
-                year,
-                make,
-                model,
-                current_odometer,
-                created_at,
-                updated_at
-            )
-            VALUES (
-                @id,
-                @ownerId,
-                @nickname,
-                @vin,
-                @year,
-                @make,
-                @model,
-                @currentOdometer,
-                @createdAt,
-                @updatedAt
-            )
-        `);
+    private async initialize() {
+        await this.db.exec(`
+            CREATE TABLE IF NOT EXISTS vehicles (
+                id TEXT PRIMARY KEY,
 
-        this.listVehiclesStmt = this.db.prepare(`
-            SELECT *
-            FROM vehicles
-            WHERE owner_id = ?
-            ORDER BY created_at DESC
-        `);
+                owner_id TEXT NOT NULL,
 
-        this.getVehicleStmt = this.db.prepare(`
-            SELECT *
-            FROM vehicles
-            WHERE id = ?
-              AND owner_id = ?
-        `);
+                nickname TEXT,
+                vin TEXT,
 
-        this.deleteVehicleStmt = this.db.prepare(`
-            DELETE
-            FROM vehicles
-            WHERE id = ?
-              AND owner_id = ?
+                year INTEGER NOT NULL,
+                make TEXT NOT NULL,
+                model TEXT NOT NULL,
+
+                current_odometer INTEGER,
+
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS maintenance_records (
+                id TEXT PRIMARY KEY,
+
+                vehicle_id TEXT NOT NULL,
+
+                service_type TEXT NOT NULL,
+                performed_at TEXT NOT NULL,
+
+                odometer INTEGER,
+                cost REAL,
+                notes TEXT,
+
+                next_due_date TEXT,
+                next_due_odometer INTEGER,
+
+                created_at TEXT NOT NULL,
+
+                FOREIGN KEY(vehicle_id)
+                    REFERENCES vehicles(id)
+                    ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS fuel_logs (
+                id TEXT PRIMARY KEY,
+
+                vehicle_id TEXT NOT NULL,
+
+                filled_at TEXT NOT NULL,
+
+                odometer INTEGER NOT NULL,
+
+                litres REAL NOT NULL,
+
+                price REAL,
+
+                created_at TEXT NOT NULL,
+
+                FOREIGN KEY(vehicle_id)
+                    REFERENCES vehicles(id)
+                    ON DELETE CASCADE
+            );
         `);
     }
 
-    private initialize(): void {
-        console.info("Initializing SQLite database...");
-        try {
-            this.db.exec(`
-                CREATE TABLE IF NOT EXISTS vehicles (
-                    id TEXT PRIMARY KEY,
-
-                    owner_id TEXT NOT NULL,
-
-                    nickname TEXT,
-
-                    vin TEXT,
-
-                    year INTEGER NOT NULL,
-                    make TEXT NOT NULL,
-                    model TEXT NOT NULL,
-
-                    current_odometer INTEGER,
-
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS maintenance_records (
-                    id TEXT PRIMARY KEY,
-
-                    vehicle_id TEXT NOT NULL,
-
-                    service_type TEXT NOT NULL,
-
-                    performed_at TEXT NOT NULL,
-
-                    odometer INTEGER,
-
-                    cost REAL,
-
-                    notes TEXT,
-
-                    next_due_date TEXT,
-
-                    next_due_odometer INTEGER,
-
-                    created_at TEXT NOT NULL,
-
-                    FOREIGN KEY(vehicle_id)
-                        REFERENCES vehicles(id)
-                        ON DELETE CASCADE
-                );
-
-                CREATE TABLE IF NOT EXISTS fuel_logs (
-                    id TEXT PRIMARY KEY,
-
-                    vehicle_id TEXT NOT NULL,
-
-                    filled_at TEXT NOT NULL,
-
-                    odometer INTEGER NOT NULL,
-
-                    litres REAL NOT NULL,
-
-                    price REAL,
-
-                    created_at TEXT NOT NULL,
-
-                    FOREIGN KEY(vehicle_id)
-                        REFERENCES vehicles(id)
-                        ON DELETE CASCADE
-                );
-            `);
-        } catch (error) {
-            console.error("Error initializing SQLite database:", error);
-            throw error;
-        }
-    }
-
-    createVehicle(input: {
+    async createVehicle(input: {
         ownerId: string;
         nickname?: string;
         vin?: string;
@@ -177,28 +112,80 @@ export class SQLiteService {
             updatedAt: now
         };
 
-        this.insertVehicleStmt.run(vehicle);
+        await this.db.run(
+            `
+            INSERT INTO vehicles (
+                id,
+                owner_id,
+                nickname,
+                vin,
+                year,
+                make,
+                model,
+                current_odometer,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+            [
+                vehicle.id,
+                vehicle.ownerId,
+                vehicle.nickname,
+                vehicle.vin,
+                vehicle.year,
+                vehicle.make,
+                vehicle.model,
+                vehicle.currentOdometer,
+                vehicle.createdAt,
+                vehicle.updatedAt
+            ]
+        );
 
         return vehicle;
     }
 
-    listVehicles(ownerId: string) {
-        return this.listVehiclesStmt.all(ownerId);
+    async listVehicles(ownerId: string) {
+        return this.db.all(
+            `
+            SELECT *
+            FROM vehicles
+            WHERE owner_id = ?
+            ORDER BY created_at DESC
+            `,
+            [ownerId]
+        );
     }
 
-    getVehicle(vehicleId: string, ownerId: string) {
-        return this.getVehicleStmt.get(vehicleId, ownerId);
+    async getVehicle(vehicleId: string, ownerId: string) {
+        return this.db.get(
+            `
+            SELECT *
+            FROM vehicles
+            WHERE id = ?
+              AND owner_id = ?
+            `,
+            [vehicleId, ownerId]
+        );
     }
 
-    deleteVehicle(vehicleId: string, ownerId: string) {
-        const result = this.deleteVehicleStmt.run(vehicleId, ownerId);
+    async deleteVehicle(vehicleId: string, ownerId: string) {
+        const result = await this.db.run(
+            `
+            DELETE
+            FROM vehicles
+            WHERE id = ?
+              AND owner_id = ?
+            `,
+            [vehicleId, ownerId]
+        );
 
         return {
-            deleted: result.changes > 0
+            deleted: (result.changes ?? 0) > 0
         };
     }
 
-    close() {
-        this.db.close();
+    async close() {
+        await this.db.close();
     }
 }
