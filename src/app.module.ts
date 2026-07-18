@@ -1,6 +1,7 @@
 import { McpApp, Module, ConfigModule, OAuthModule } from '@nitrostack/core';
 // import { FlightsModule } from './modules/flights/flights.module.js';
 import { VehiclesModule } from './modules/vehicles/vehicles.module.js';
+import { MaintenanceModule } from './modules/maintenance/maintenance.module.js';
 import { SystemHealthCheck } from './health/system.health.js';
 
 /**
@@ -96,7 +97,8 @@ import { SystemHealthCheck } from './health/system.health.js';
     }),
 
     // FlightsModule,
-    VehiclesModule
+    VehiclesModule,
+    MaintenanceModule
   ],
   providers: [
     // Health Checks
